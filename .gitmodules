@@ -1,0 +1,3 @@
+[submodule "src/cordova-plugin-webxr"]
+	path = src/cordova-plugin-webxr
+	url = git@github.com:tzachari/cordova-plugin-webxr.git
