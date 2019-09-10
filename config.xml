@@ -26,6 +26,8 @@
     </platform>
     <plugin name="cordova-plugin-whitelist" spec="1" />
     <plugin name="cordova-plugin-webxr" spec="src/cordova-plugin-webxr" />
+    <preference name="Orientation" value="portrait" />
+    <preference name="DisallowOverscroll" value="true" />
     <preference name="AllowBackForwardNavigationGestures" value="true" />
     <preference name="AllowInlineMediaPlayback" value="true" />
     <preference name="Allow3DTouchLinkPreview" value="false" />
