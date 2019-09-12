@@ -25,7 +25,9 @@
         <allow-intent href="itms-apps:*" />
     </platform>
     <plugin name="cordova-plugin-whitelist" spec="1" />
-    <plugin name="cordova-plugin-webxr" spec="src/cordova-plugin-webxr" />
+    <plugin name="cordova-plugin-webxr" spec="src/cordova-plugin-webxr">
+        <variable name="WEBXR_AUTHORIZATION" value="worldSensing" />
+    </plugin>
     <preference name="Orientation" value="portrait" />
     <preference name="DisallowOverscroll" value="true" />
     <preference name="AllowBackForwardNavigationGestures" value="true" />
