@@ -11,14 +11,11 @@
 		<link rel="stylesheet" href="../common.css"/>
 	</head>
 	<body>
-		<div id="description">
-			<h2>Hit Test with Persistence</h2>
-			<h5>(click to dismiss)</h5>
-			<p>Find anchors by searching on tap events.</p>
-		</div>
+		<div id="shutter" style="border-radius:100%; -webkit-backdrop-filter:blur(3px); position:absolute; width:20vw; height:20vw; margin:-10vw; bottom:20vw; left:50vw; padding:0; border:.5vw solid #0006; box-shadow:0 0 0 1.5vw #fff,0 0 2vw 1.5vw #000c"></div>
 		<button type=button id=go-button>Go</button><br>
 		<button type=button id=get-button style="display: none">Get Map</button><br>
 		<button type=button id=set-button style="display: none">Set Map</button><br>
+		<script>abc = null</script>
 		<script type=module>
 			// some dependencies and utilities
 			import * as mat4 from '../libs/gl-matrix/mat4.js'
@@ -39,10 +36,13 @@
 			// for debugging, not for production use
 			let mapMessageEl = document.createElement('div')
 			mapMessageEl.style.position = 'absolute'
-			mapMessageEl.style.bottom = '30px'
-			mapMessageEl.style.left = '10px'
-			mapMessageEl.style.color = 'grey'
-			mapMessageEl.style['font-size'] = '16px'
+			mapMessageEl.style.bottom = '2.5vw'
+			mapMessageEl.style.textAlign = 'center'
+			mapMessageEl.style.width = '100vw'
+			mapMessageEl.style.color = '#fff'
+			mapMessageEl.style.textShadow = '1px 1px 0 #000c'			
+			mapMessageEl.style.fontSize = '2.5vw'
+			mapMessageEl.style.fontFamily = 'sans-serif'
 			document.body.appendChild(mapMessageEl)
 
 			// a saved map
@@ -98,7 +98,7 @@
 			function updateScene(frame){
 				let msg = session.nonStandard_getWorldMappingStatus()
 				if (msg) {
-					mapMessageEl.innerHTML = msg
+					mapMessageEl.innerHTML = msg.replace(/_/g,' ').toUpperCase()
 				}
 			}
 
@@ -182,14 +182,18 @@
 				console.error('Error', err)
 			})
 
-			document.getElementById('description').addEventListener('touchstart', hideMe, {capture: true})
-			function hideMe(event) { 
+			document.getElementById('shutter').addEventListener('touchstart', shutter, {capture: true})
+			function shutter(event) { 
+				console.log(abc = session)
+				document.body.innerHTML = `<img src="${document.querySelectorAll('canvas')[1].toDataURL()}" />`
+
 				event.target.style.display = 'none' 
 				event.stopPropagation()
 			}
 
 			document.getElementById('go-button').addEventListener('click', handleStartSessionRequest, true)
 			document.getElementById('go-button').addEventListener('touchstart', eatButtonTouch, true)
+			setTimeout(handleStartSessionRequest,10)
 			function eatButtonTouch(event) { 
 				event.stopPropagation()
 			}
@@ -283,6 +287,7 @@
 				// Create a simple test scene and renderer
 				// The engine's scene is in the eye-level coordinate system 
 				engine = new XREngine(canvas, glContext)
+				console.log(XREngine)
 
 				createRootNode().then(() => {
 					// Kick off rendering
@@ -295,6 +300,7 @@
 			async function createRootNode() {
 				let headFrameOfReference = await session.requestFrameOfReference('head-model')
 				eyeLevelFrameOfReference = await session.requestFrameOfReference('eye-level')
+				document.querySelectorAll('canvas')[1].toDataURL()
 
 				// get the location of the device, and use it to create an 
 				// anchor with the identity orientation
