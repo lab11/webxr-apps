@@ -4,24 +4,45 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<script src="../libs/three/three.min.js"></script>
- 		<script module src="../../dist/webxr.js"></script>
-		<!-- <link rel="stylesheet" href="../common.css"/> -->
+		<script module src="../../dist/webxr.js"></script>
+		<script src="../../cordova.js"></script>
+		<script src="lifx.js"></script>
+		<style>
+			html, body { background-attachment:fixed; background-size:cover; color:#fff; font-family:sans-serif; margin:0; padding:0; overflow:hidden; height:100%; width:100%; user-select:none }
+			select     { -webkit-appearance:none; background:#0008; border:none; border-right:1px solid #fff3; border-radius:0; color:#fff; font-size:5vw; margin:0; padding:2.5vw; width:50% }
+			.focus     { background:#fff8; color:#000 }
+			.disabled  { opacity:.2 }
+			.enabled:active { background:#fff !important }
+			.enabled:active * { border-left-color:#09f !important }
+			#get, #set { display:none !important }
+			#message   { bottom:2.5vw; font-size:2.5vw; position:absolute; text-align:center; text-shadow:1px 1px 0 #000c; width:100vw }
+			#shutter   { -webkit-backdrop-filter:blur(3px); border:.5vw solid #0006; border-radius:100%; bottom:20vw; box-shadow:0 0 0 1.5vw #fff,0 0 2vw 1.5vw #000c; height:20vw; left:50vw; margin:-10vw; padding:0; position:absolute; width:20vw }
+			#submit    { background:#09f; border-radius:100%; box-shadow:0 0 1.5vw #000c; display:none; align-items:center; justify-content:center; width:16vw; height:16vw; position:absolute; bottom:4vw; right:4vw }
+			#submit *  { border-top:4vw solid #0000; border-left:8vw solid #fff; border-bottom:4vw solid #0000; margin-left:2vw; width:0; height:0 }
+			#chat      { /*background:#0008;*/ border:none; border-radius:1vw; color:#fff; display:none; font-size:5vw; right:2.5vw; position:fixed; resize:none; overflow-x:hidden; top:0; width:83.5vw }
+			#x         { display:none; line-height:12.5vw; font-size:10vw; padding:0 2.5vw; position:fixed; top:0; left:0; text-shadow:1px 1px 0 #000c }
+		</style>
 	</head>
 	<body>
-		<div id="shutter" style="border-radius:100%; -webkit-backdrop-filter:blur(3px); position:absolute; width:20vw; height:20vw; margin:-10vw; bottom:20vw; left:50vw; padding:0; border:.5vw solid #0006; box-shadow:0 0 0 1.5vw #fff,0 0 2vw 1.5vw #000c"></div>
-		<button type=button id=go-button>Go</button><br>
-		<button type=button id=get-button style="display:none">Get Map</button><br>
-		<button type=button id=set-button style="display:none">Set Map</button><br>
-		<div id="message" style="bottom:2.5vw; color:#fff; font-family:sans-serif; font-size:2.5vw; position:absolute; text-align:center; text-shadow:1px 1px 0 #000c; width:100vw"></div>
-		<img id="snap" style="position:fixed; right:0; top:0; width:100vw" />
-		<textarea id="chat" rows="1" style="background:#0008; border:none; bottom:0; color:#fff; display:none; font-size:5vw; left:0; padding:2.5vw; position:fixed; resize:none; width:100vw"></textarea>
-		<script type=module>
+		<button id="go">Go</button><br>
+		<div id="message"></div>
+		<div id="shutter"></div>
+		<!-- <textarea id="chat" rows="1"></textarea> -->
+		<form id="chat">
+			<select id="chat1" ontouchstart="this.focus()"><option selected=true disabled>DEVICE</option></select><select id="chat2" ontouchstart="this.focus()"><option selected=true disabled>ACTION</option><option>Turn On</option><option>Turn Off</option></select>
+		</form>
+		<div id="submit" class="disabled"><div></div></div>
+		<div id="x">✕</div>
+		<button id="get">Get Map</button><br>
+		<button id="set">Set Map</button><br>
+		<script>getter=setter=0</script>
+		<script type="module">
 			// some dependencies and utilities
 			import * as mat4 from '../libs/gl-matrix/mat4.js'
 			import * as vec3 from '../libs/gl-matrix/vec3.js'
 
-			import XREngine from "../XREngine.js"
-			import XRInputManager from "../XRInputManager.js"
+			import XREngine from '../XREngine.js'
+			import XRInputManager from '../XRInputManager.js'
 
 			let device = null
 			let session = null
@@ -29,15 +50,21 @@
 			let engine = null
 			var pause = null
 			var snap = null
-			
+			let lights = null
+			let font = null
+			var names = [ `Thomas's light`, `Meghan's light`, `Rohit's light` ]
+			var frustum = new THREE.Frustum();
+			var cameraViewProjectionMatrix = new THREE.Matrix4();
+
 			// temporary working variables
-			const workingMatrix = mat4.create()
+			const workingMatrix1 = mat4.create()
+			const workingMatrix2 = mat4.create()
 			const workingVec3 = vec3.create()
 
-			const updateSnap = async() => snap = document.querySelector('div canvas').toDataURL();
+			const upY = vec3.fromValues(0,1,0)
 
-			// for debugging, not for production use
-			let mapMessageEl = document.querySelector('#message')
+			// get ready for the snap
+			const updateSnap = async() => snap = document.querySelector('div canvas').toDataURL()
 
 			// a saved map
 			var worldMap = null
@@ -51,40 +78,68 @@
 				// engine.addBox([0, 0, 0], [0.025, 0.025, 0.025], 0x44ff44)
 				// engine.addAxesHelper([0,0,0], [0.2,0.2,0.2])				
 			}
-			
-			function handleHitResults(hits) {
-				let size = 0.05;
-				let hit = hits[0]
-				if (hit) {
-					// use the hitMatrix so it creates an independent anchor
-					session.requestFrameOfReference('head-model').then(headFrameOfReference => {
-						session.addAnchor(hit.hitMatrix, headFrameOfReference).then(anchor => {
-							engine.addAnchoredNode(anchor, createSceneGraphNode())
+
+			function addAnchorInScreenCoordinates(normalizedX, normalizedY){
+				if(session === null){
+					console.log('No session for adding anchor')
+					return
+				}
+				// Convert the screen coordinates into head-model origin/direction for hit testing
+				const [origin, direction] = 
+					XRInputManager.convertScreenCoordinatesToRay(normalizedX, normalizedY, 
+																 engine.camera.projectionMatrix)
+
+				// set up the local transformation to be positioned relative to the camera along
+				// the ray, but also oriented along the ray direction
+				mat4.targetTo(workingMatrix1, origin, direction, upY)
+				mat4.fromTranslation(workingMatrix2, direction)
+				mat4.multiply(workingMatrix1, workingMatrix2, workingMatrix1)
+
+				// create an anchor in front of the phone
+				session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+						session.addAnchor(workingMatrix1, headFrameOfReference).then(anchor => {					
+							engine.addAnchoredNode(anchor, createSceneGraphNode())					
 						}).catch(err => {
 							console.error('Error adding anchor', err)
 						})
-					})
-				}
+				})
 			}
+			
+//			function handleHitResults(hits) {
+//				let size = 0.05;
+//				let hit = hits[0]
+//				if (hit) {
+//					// use the hitMatrix so it creates an independent anchor
+//					session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+//						session.addAnchor(hit.hitMatrix, headFrameOfReference).then(anchor => {
+//							engine.addAnchoredNode(anchor, createSceneGraphNode())
+//						}).catch(err => {
+//							console.error('Error adding anchor', err)
+//						})
+//					})
+//				}
+//			}
 
 			// Creates a box used to indicate the location of an anchor offset
 			function createSceneGraphNode(){
 				let group = new THREE.Group()
-				let geometry = new THREE.BoxBufferGeometry(0.1, 0.1, 0.1)
+				group.name = names.shift() || ""
+
+				let geometry = new THREE.TextBufferGeometry( group.name.replace(' ','\n'), { font:font, size:.05, height:.05 } )
 				var color = new THREE.Color( 0xffffff );
         		color.setHex( Math.random() * 0xffffff );
 				let material = new THREE.MeshPhongMaterial({ color: color })
 				let mesh = new THREE.Mesh(geometry, material)
 	
-				var outlineMaterial = new THREE.MeshBasicMaterial( { color: 0x00ff00, side: THREE.BackSide } );
-				var outlineMesh = new THREE.Mesh( geometry, outlineMaterial );
+				// var outlineMaterial = new THREE.MeshBasicMaterial( { color: 0x00ff00, side: THREE.BackSide } );
+				// var outlineMesh = new THREE.Mesh( geometry, outlineMaterial );
 
 				mesh.position.set(0, 0.05, 0)
-				outlineMesh.position.set(0, 0.05, 0);
-				outlineMesh.scale.multiplyScalar(1.05);
+				// outlineMesh.position.set(0, 0.05, 0);
+				// outlineMesh.scale.multiplyScalar(1.05);
 
 				group.add(mesh)
-				group.add(outlineMesh)
+				// group.add(outlineMesh)
 				return group
 			}
 
@@ -92,7 +147,7 @@
 			function updateScene(frame){
 				let msg = session.nonStandard_getWorldMappingStatus()
 				if (msg) {
-					mapMessageEl.innerHTML = msg.replace(/_/g,' ').toUpperCase()
+					document.querySelector('#message').innerHTML = msg.replace(/_/g,' ').toUpperCase()
 				}
 			}
 
@@ -115,7 +170,7 @@
 			function getMap() {
 				session.nonStandard_getWorldMap().then(map => {
 					worldMap = map;
-					console.log("got worldMap, size = ", worldMap.worldMap.length)
+					console.log('got worldMap, size = ', worldMap.worldMap.length)
 				}).catch(err => {
 					console.error('Could not get world Map', err)
 					worldMap = null;
@@ -138,19 +193,22 @@
 
 
 
-						console.log("set worldMap ok")
+						console.log('set worldMap ok')
 					}).catch(err => {
 						console.error('Could not set world Map', err)
 					})
 				}
 			}
+
+			getter = getMap
+			setter = setMap
 			
 			function _handleNewWorldAnchor(event) {
 				let anchor = event.detail
 
 				if (anchor.uid.startsWith('anchor-')) {
 					// it's an anchor we created last time
-					console.log("RECEIVED anchor with uid=", anchor.uid)
+					console.log('RECEIVED anchor with uid=', anchor.uid)
 
 					this.addAnchoredNode(new XRAnchorOffset(anchor.uid), this._createSceneGraphNode())
 				}
@@ -176,43 +234,69 @@
 				console.error('Error', err)
 			})
 
-			document.getElementById('shutter').addEventListener('touchstart', shutter, {capture: true})
+			document.querySelector('#shutter').addEventListener('touchstart', shutter, {capture: true})
 			function shutter(event) { 
-				document.querySelector('#snap').src = snap
-				session.end()
+				if ( event.target.className == 'disabled' ) return
 
-				let chat = document.querySelector('#chat')
+				let chat   = document.querySelector('#chat')
+				let chat1  = document.querySelector('#chat1')
+				let chat2  = document.querySelector('#chat2')
+				let submit = document.querySelector('#submit')
+				var nodes  = engine._scene.children.filter( (node, index) => index > 1 && frustum.intersectsObject( node.children[0] ) ) 
+
+				document.body.style.backgroundImage = `url(${ snap })`
+				document.querySelectorAll('button,#message,#shutter').forEach( button => button.style.display = 'none' )
+				document.querySelector('#x').style.display = 'initial'
+				document.querySelector('#x').onclick = onbeforeunload = onunload = e => Lifx.destroy() && location.reload()
+				nodes.concat({name:'All'}).forEach( node => chat1.insertAdjacentHTML( 'beforeend', `<option>${ node.name }</option>` ) )
+				submit.style.display = 'flex'
+
 				chat.style.display = 'initial'
 				chat.onkeyup = _ => chat.setAttribute( 'rows', chat.value.split('\n').length ) 
-				chat.onblur = chat.focus
-				chat.focus()
+				chat.querySelectorAll('select').forEach( select => select.onfocus = _ => select.className = 'focus' )
 
-				event.target.style.display = 'none' 
+				chat1.selectedIndex = chat1.selectedIndex || 1
+				chat1.focus()
+				chat1.onblur = e => {
+					let lightList = chat1.value == 'All' ? nodes.map( node => node.name ) : [ chat1.value ]
+					chat2.selectedIndex = chat2.selectedIndex || 1
+					chat2.focus()
+					chat2.onblur = e => { 
+						chat2.className = ''
+						submit.className = lights ? 'enabled' : submit.className
+					}
+					submit.onclick = e => lightList.forEach( l => lights[l] && lights[l][`turn${ chat2.selectedIndex == 1 ? 'On' : 'Off' }`]() )
+					chat1.className = ''
+				}
+
+				setTimeout( _ => session.end(), 50 )
+
 				event.stopPropagation()
 			}
 
-			document.getElementById('go-button').addEventListener('click', handleStartSessionRequest, true)
-			document.getElementById('go-button').addEventListener('touchstart', eatButtonTouch, true)
+			document.querySelector('#go').addEventListener('click', handleStartSessionRequest, true)
+			document.querySelector('#go').addEventListener('touchstart', eatButtonTouch, true)
 			setTimeout(handleStartSessionRequest,10)
 			function eatButtonTouch(event) { 
 				event.stopPropagation()
 			}
 
-			document.getElementById('get-button').addEventListener('click', getMap, true)
-			document.getElementById('get-button').addEventListener('touchstart', eatButtonTouch, true)
-			document.getElementById('set-button').addEventListener('click', setMap, true)
-			document.getElementById('set-button').addEventListener('touchstart', eatButtonTouch, true)
+			document.querySelector('#get').addEventListener('click', getMap, true)
+			document.querySelector('#get').addEventListener('touchstart', eatButtonTouch, true)
+			document.querySelector('#set').addEventListener('click', setMap, true)
+			document.querySelector('#set').addEventListener('touchstart', eatButtonTouch, true)
 
 			// handle input events from the XRInputManager
 			const inputManager = new XRInputManager(handleXRInput)
 			function handleXRInput(eventName, details){
 				switch(eventName){
 					case 'normalized-touch':
-						hitTestWithScreenCoordinates(...details.normalizedCoordinates)
-							.then(handleHitResults)
-							.catch(err => {
-								console.error('Error testing hits', err)
-							})
+						addAnchorInScreenCoordinates(...details.normalizedCoordinates)
+//						hitTestWithScreenCoordinates(...details.normalizedCoordinates)
+//							.then(handleHitResults)
+//							.catch(err => {
+//								console.error('Error testing hits', err)
+//							})
 						break
 					default:
 						console.error('unknown xr input event', eventName, details)
@@ -226,9 +310,7 @@
 					return Promise.reject()
 				}
 				// Convert the screen coordinates into head-model origin/direction for hit testing
-				const [origin, direction] = 
-						XRInputManager.convertScreenCoordinatesToRay(normalizedX, normalizedY, 
-											 																	 engine.camera.projectionMatrix)
+				const [ origin, direction ] = XRInputManager.convertScreenCoordinatesToRay( normalizedX, normalizedY, engine.camera.projectionMatrix )
 
 				return session.requestFrameOfReference('head-model').then(headFrameOfReference => {
 					return session.requestHitTest(origin, direction, headFrameOfReference)
@@ -244,26 +326,33 @@
 				}
 
 				if (!session) {
-					device.requestSession({ 
-                        outputContext: xrContext,
-                        worldSensing: true  
-                    }).then(handleSessionStarted)
-						.catch(err => {
-							console.error('Session setup error', err)
-						})
-					document.getElementById('go-button').innerText = "End"
-					document.getElementById('go-button').style.display = "none"
-					document.getElementById('set-button').style.display = 'block' 
-					document.getElementById('get-button').style.display = 'block' 
+					device.requestSession( { outputContext:xrContext, worldSensing: true } )
+					      .then( handleSessionStarted )
+						    .catch( err => console.error('Session setup error', err) )
+					document.querySelector('#go').innerText = 'End'
+					document.querySelector('#go').style.display = 'none'
+					document.querySelector('#set').style.display = 'block' 
+					document.querySelector('#get').style.display = 'block' 
 				} else {
 					session.end()
 					handleSessionEnded();
-					document.getElementById('description').style.display = 'block' 
-					document.getElementById('set-button').style.display = 'none' 
-					document.getElementById('get-button').style.display = 'none' 
-					document.getElementById('go-button').style.display = "block"
-					document.getElementById('go-button').innerText = "Go"
+					document.querySelector('#description').style.display = 'block' 
+					document.querySelector('#set').style.display = 'none' 
+					document.querySelector('#get').style.display = 'none' 
+					document.querySelector('#go').style.display = 'block'
+					document.querySelector('#go').innerText = 'Go'
 				}
+
+				new THREE.FontLoader().load( '../libs/fonts/helvetiker_regular.typeface.json', f => font = f )
+
+				Lifx.discover().then( list => {
+					if ( !list || !list.length ) return
+					lights = {}
+					list.forEach( l => lights[l.deviceInfo.label] = l )
+					if ( document.querySelector('#chat2').selectedIndex ) {
+						document.querySelector('#submit').className = 'enabled'
+					}
+				} )
 			}
 
 			function handleSessionEnded() {	
@@ -273,6 +362,13 @@
 			function handleSessionStarted(xrSession){
 				session = xrSession
 				document.body.insertBefore(xrCanvas, document.body.firstChild)
+				document.onscroll = e => { 
+					e.preventDefault()
+					e.stopPropagation()
+					window.scrollTo( 0, 0 )
+					document.body.scrollTop = 0
+					return false
+				}
 
 				// Create the context where we will render our 3D scene
 				const canvas = document.createElement('canvas')
@@ -286,7 +382,7 @@
 
 				// Create a simple test scene and renderer
 				// The engine's scene is in the eye-level coordinate system 
-				engine = new XREngine(canvas, glContext)
+				window.engine = engine = new XREngine(canvas, glContext)
 
 				createRootNode().then(() => {
 					// Kick off rendering
@@ -302,11 +398,11 @@
 
 				// get the location of the device, and use it to create an 
 				// anchor with the identity orientation
-				headFrameOfReference.getTransformTo(eyeLevelFrameOfReference, workingMatrix)
-				mat4.getTranslation(workingVec3, workingMatrix)
-				mat4.fromTranslation(workingMatrix, workingVec3)
+				headFrameOfReference.getTransformTo(eyeLevelFrameOfReference, workingMatrix1)
+				mat4.getTranslation(workingVec3, workingMatrix1)
+				mat4.fromTranslation(workingMatrix1, workingVec3)
 
-				let anchor = await session.addAnchor(workingMatrix, eyeLevelFrameOfReference)
+				let anchor = await session.addAnchor(workingMatrix1, eyeLevelFrameOfReference)
 				engine.addAnchoredNode(anchor, engine.root)
 				
 				return true
@@ -336,6 +432,19 @@
 				}
 				engine.endFrame()
 				updateSnap()
+
+				engine._camera.matrixWorldInverse.getInverse( engine._camera.matrixWorld );
+				cameraViewProjectionMatrix.multiplyMatrices( engine._camera.projectionMatrix, engine._camera.matrixWorldInverse );
+				frustum.setFromMatrix( cameraViewProjectionMatrix );
+
+				document.querySelector('#shutter').className = 'disabled'
+				engine._scene.children.forEach( (node, index) => {
+					if ( index > 1 && frustum.intersectsObject( node.children[0] ) ) {
+						node.children[0].quaternion.copy( engine._camera.quaternion )
+						document.querySelector('#shutter').className = ''
+					}
+				} )
+
 			}
 
 		</script>
