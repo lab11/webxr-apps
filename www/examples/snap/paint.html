@@ -1,0 +1,437 @@
+<html>
+	<head>
+		<title>Snapchat for Smart Spaces</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<script src="../libs/three/three.min.js"></script>
+		<script module src="../../dist/webxr.js"></script>
+		<script src="../../cordova.js"></script>
+		<script src="lifx.js"></script>
+		<style>
+			html, body { background-attachment:fixed; background-size:cover; color:#fff; font-family:sans-serif; margin:0; padding:0; overflow:hidden; height:100%; width:100%; user-select:none }
+			select     { -webkit-appearance:none; background:#0008; border:none; border-right:1px solid #fff3; border-radius:0; color:#fff; font-size:5vw; margin:0; padding:2.5vw; width:50% }
+			.focus     { background:#fff8; color:#000 }
+			.disabled  { opacity:.2 }
+      .selected  { box-shadow:0 0 0 1.5vw #fff,0 0 2vw 1.5vw #000c !important }
+			#get, #set { display:none !important }
+			#message   { bottom:2.5vw; font-size:2.5vw; position:absolute; text-align:center; text-shadow:1px 1px 0 #000c; width:100vw }
+			#control   { bottom:10vw; left:0; padding:0; position:absolute; display:inline-flex; align-items:center; justify-content:center; width:100vw } 
+			#control * { -webkit-backdrop-filter:blur(3px); border:.5vw solid #0006; border-radius:100%; box-shadow:0 0 0 .75vw #fffc,0 0 1vw .75vw #000c; height:7vw; margin:0 2vw; padding:0; width:7vw }
+			#submit    { background:#09f; border-radius:100%; box-shadow:0 0 1.5vw #000c; display:none; align-items:center; justify-content:center; width:16vw; height:16vw; position:absolute; bottom:4vw; right:4vw }
+			#submit *  { border-top:4vw solid #0000; border-left:8vw solid #fff; border-bottom:4vw solid #0000; margin-left:2vw; width:0; height:0 }
+			#chat      { /*background:#0008;*/ border:none; border-radius:1vw; color:#fff; display:none; font-size:5vw; right:2.5vw; position:fixed; resize:none; overflow-x:hidden; top:0; width:83.5vw }
+			#x         { line-height:12.5vw; font-size:10vw; padding:0 2.5vw; position:fixed; top:0; left:0; text-shadow:1px 1px 0 #000c }
+		</style>
+	</head>
+	<body>
+		<button id="go">Go</button><br>
+    <div id="message"></div>
+    <div id="control" class="disabled">
+      <div id="white" style="background:white"></div>
+      <div id="red" style="background:red"></div>
+      <div id="orange" style="background:orange"></div>
+      <div id="yellow" style="background:yellow"></div>
+      <div id="green" style="background:green"></div>
+      <div id="blue" style="background:#08f"></div>
+      <div id="purple" style="background:purple"></div>
+      <div id="off"></div>
+    </div>
+		<!-- <textarea id="chat" rows="1"></textarea> -->
+		<form id="chat">
+			<select id="chat1" ontouchstart="this.focus()"><option selected=true disabled>DEVICE</option></select><select id="chat2" ontouchstart="this.focus()"><option selected=true disabled>ACTION</option><option>Turn On</option><option>Turn Off</option></select>
+		</form>
+		<div id="submit" class="disabled"><div></div></div>
+		<!-- <div id="x">⟳</div> -->
+		<button id="get">Get Map</button><br>
+		<button id="set">Set Map</button><br>
+		<script>getter=setter=0</script>
+		<script type="module">
+			// some dependencies and utilities
+			import * as mat4 from '../libs/gl-matrix/mat4.js'
+			import * as vec3 from '../libs/gl-matrix/vec3.js'
+
+			import XREngine from '../XREngine.js'
+			import XRInputManager from '../XRInputManager.js'
+
+			let device = null
+			let session = null
+			let eyeLevelFrameOfReference = null
+			let engine = null
+			var pause = null
+			var snap = null
+			let lights = null
+			let font = null
+      var names = [ `Thomas's light`, `Meghan's light`, `Matt's light`, `Jean-Luc's light` ]
+      var liteList = {}
+			var frustum = new THREE.Frustum();
+			var cameraViewProjectionMatrix = new THREE.Matrix4();
+
+			// temporary working variables
+			const workingMatrix1 = mat4.create()
+			const workingMatrix2 = mat4.create()
+			const workingVec3 = vec3.create()
+
+			const upY = vec3.fromValues(0,1,0)
+
+			// get ready for the snap
+			const updateSnap = async() => snap = document.querySelector('div canvas').toDataURL()
+      // document.querySelector('#x').onclick = 
+      onbeforeunload = onunload = e => Lifx.destroy() && location.reload()
+
+			// a saved map
+			var worldMap = null
+
+			function initializeScene(){
+				engine.addAmbientLight()
+				engine.addDirectionalLight()
+
+				// Add a box and axis at the origin of the eye-level coordinate system
+				// for debugging by uncommenting these lines
+				// engine.addBox([0, 0, 0], [0.025, 0.025, 0.025], 0x44ff44)
+				// engine.addAxesHelper([0,0,0], [0.2,0.2,0.2])				
+			}
+
+			function addAnchorInScreenCoordinates(normalizedX, normalizedY){
+				if(session === null){
+					console.log('No session for adding anchor')
+					return
+				}
+				// Convert the screen coordinates into head-model origin/direction for hit testing
+				const [origin, direction] = 
+					XRInputManager.convertScreenCoordinatesToRay(normalizedX, normalizedY, 
+																 engine.camera.projectionMatrix)
+
+				// set up the local transformation to be positioned relative to the camera along
+				// the ray, but also oriented along the ray direction
+				mat4.targetTo(workingMatrix1, origin, direction, upY)
+				mat4.fromTranslation(workingMatrix2, direction)
+				mat4.multiply(workingMatrix1, workingMatrix2, workingMatrix1)
+
+				// create an anchor in front of the phone
+				session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+						session.addAnchor(workingMatrix1, headFrameOfReference).then(anchor => {					
+							engine.addAnchoredNode(anchor, createSceneGraphNode())					
+						}).catch(err => {
+							console.error('Error adding anchor', err)
+						})
+				})
+			}
+			
+//			function handleHitResults(hits) {
+//				let size = 0.05;
+//				let hit = hits[0]
+//				if (hit) {
+//					// use the hitMatrix so it creates an independent anchor
+//					session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+//						session.addAnchor(hit.hitMatrix, headFrameOfReference).then(anchor => {
+//							engine.addAnchoredNode(anchor, createSceneGraphNode())
+//						}).catch(err => {
+//							console.error('Error adding anchor', err)
+//						})
+//					})
+//				}
+//			}
+
+			// Creates a box used to indicate the location of an anchor offset
+			function createSceneGraphNode(){
+				let group = new THREE.Group()
+				group.name = names.shift() || ""
+
+				let geometry = new THREE.TextBufferGeometry( group.name.replace(' ','\n'), { font:font, size:.05, height:.05 } )
+				var color = new THREE.Color( 0xffffff );
+        		color.setHex( Math.random() * 0xffffff );
+				let material = new THREE.MeshPhongMaterial({ color: color })
+				let mesh = new THREE.Mesh(geometry, material)
+	
+				// var outlineMaterial = new THREE.MeshBasicMaterial( { color: 0x00ff00, side: THREE.BackSide } );
+				// var outlineMesh = new THREE.Mesh( geometry, outlineMaterial );
+
+				mesh.position.set(0, 0.05, 0)
+				// outlineMesh.position.set(0, 0.05, 0);
+				// outlineMesh.scale.multiplyScalar(1.05);
+
+				group.add(mesh)
+				// group.add(outlineMesh)
+				return group
+			}
+
+			// Called once per frame, before render, to give the app a chance to update this.scene
+			function updateScene(frame){
+				let msg = session.nonStandard_getWorldMappingStatus()
+				if (msg) {
+					document.querySelector('#message').innerHTML = msg.replace(/_/g,' ').toUpperCase()
+				}
+			}
+
+
+			/**
+			 * Basic flow needed:
+			 * - session.getMapForAnchor(anchor)
+			 *   returns a promise that resolves when finished.
+			 *   internally, we'll wait till the area is "mapped", then get the map and
+			 *   check if the anchor is in it.  Will only return the map without details
+			 *   has methods to cancel trying, and check status
+			 * - session.getAnchorFromMap(map)
+			 *   returns a promise that resolves when the map has loaded and the 
+			 *   anchor associated with the map is alive.  
+			 *      or returns a new kind of XRAnchor, XRMappedAnchor, that can be
+			 *      tested as to when it is resolved and thus valid, and also has
+			 *      methods to cancel the resolving process and get status
+			 *   need to be careful to not pass other anchors up to the app
+			*/
+			function getMap() {
+				session.nonStandard_getWorldMap().then(map => {
+					worldMap = map;
+					console.log('got worldMap, size = ', worldMap.worldMap.length)
+				}).catch(err => {
+					console.error('Could not get world Map', err)
+					worldMap = null;
+				});
+			}
+
+			// if you have a world map, you can use it with a similar command.  
+			// to see it in action, uncomment the following code:
+			//
+			function setMap () {
+				if (worldMap) {
+					session.nonStandard_setWorldMap(worldMap).then(val => {
+
+						// val returns a list of anchors, many of which are not yet valid
+						// we will set them to one thing now, and change it to something
+						// else when the first update happens
+
+
+
+
+
+
+						console.log('set worldMap ok')
+					}).catch(err => {
+						console.error('Could not set world Map', err)
+					})
+				}
+			}
+
+			getter = getMap
+			setter = setMap
+			
+			function _handleNewWorldAnchor(event) {
+				let anchor = event.detail
+
+				if (anchor.uid.startsWith('anchor-')) {
+					// it's an anchor we created last time
+					console.log('RECEIVED anchor with uid=', anchor.uid)
+
+					this.addAnchoredNode(new XRAnchorOffset(anchor.uid), this._createSceneGraphNode())
+				}
+			}
+
+
+			////////////////////////////////////////////////////
+			////////////////////////////////////////////////////
+			// BOILER PLATE.  Can you feel the plates boiling?
+			//
+			// Create the output context where the XRSession will place composited renders
+			const xrCanvas = document.createElement('canvas')
+			xrCanvas.setAttribute('class', 'xr-canvas')
+			const xrContext = xrCanvas.getContext('xrpresent')
+			if(!xrContext){
+				console.error('No XR context', xrCanvas)
+			}
+
+			// get the XR Device
+			navigator.xr.requestDevice().then(xrDevice => {
+				device = xrDevice
+			}).catch(err => {
+				console.error('Error', err)
+			})
+
+			document.querySelectorAll('#control *').forEach( el => el.addEventListener('touchstart', control, {capture: true}) )
+			function control(event) { 
+        document.querySelectorAll('#control *').forEach( el => el.className = '' )
+        event.target.className = 'selected'
+				event.stopPropagation()
+			}
+
+			document.querySelector('#go').addEventListener('click', handleStartSessionRequest, true)
+			document.querySelector('#go').addEventListener('touchstart', eatButtonTouch, true)
+			setTimeout(handleStartSessionRequest,10)
+			function eatButtonTouch(event) { 
+				event.stopPropagation()
+			}
+
+			document.querySelector('#get').addEventListener('click', getMap, true)
+			document.querySelector('#get').addEventListener('touchstart', eatButtonTouch, true)
+			document.querySelector('#set').addEventListener('click', setMap, true)
+			document.querySelector('#set').addEventListener('touchstart', eatButtonTouch, true)
+
+			// handle input events from the XRInputManager
+			const inputManager = new XRInputManager(handleXRInput)
+			function handleXRInput(eventName, details){
+				switch(eventName){
+					case 'normalized-touch':
+						addAnchorInScreenCoordinates(...details.normalizedCoordinates)
+//						hitTestWithScreenCoordinates(...details.normalizedCoordinates)
+//							.then(handleHitResults)
+//							.catch(err => {
+//								console.error('Error testing hits', err)
+//							})
+						break
+					default:
+						console.error('unknown xr input event', eventName, details)
+						break
+				}
+			}
+
+			function hitTestWithScreenCoordinates(normalizedX, normalizedY){
+				if(session === null){
+					console.log('No session for hit testing')
+					return Promise.reject()
+				}
+				// Convert the screen coordinates into head-model origin/direction for hit testing
+				const [ origin, direction ] = XRInputManager.convertScreenCoordinatesToRay( normalizedX, normalizedY, engine.camera.projectionMatrix )
+
+				return session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+					return session.requestHitTest(origin, direction, headFrameOfReference)
+				})
+			}
+
+			/////////////////////
+			// Session startup / shutdown
+			function handleStartSessionRequest(ev){
+				if(device === null){
+					console.error('No xr device')
+					return
+				}
+
+				if (!session) {
+					device.requestSession( { outputContext:xrContext, worldSensing: true } )
+					      .then( handleSessionStarted )
+						    .catch( err => console.error('Session setup error', err) )
+					document.querySelector('#go').innerText = 'End'
+					document.querySelector('#go').style.display = 'none'
+					document.querySelector('#set').style.display = 'block' 
+					document.querySelector('#get').style.display = 'block' 
+				} else {
+					session.end()
+					handleSessionEnded();
+					document.querySelector('#description').style.display = 'block' 
+					document.querySelector('#set').style.display = 'none' 
+					document.querySelector('#get').style.display = 'none' 
+					document.querySelector('#go').style.display = 'block'
+					document.querySelector('#go').innerText = 'Go'
+				}
+
+				new THREE.FontLoader().load( '../libs/fonts/helvetiker_regular.typeface.json', f => font = f )
+
+				Lifx.discover().then( list => {
+					if ( !list || !list.length ) return
+					lights = {}
+          list.forEach( l => lights[l.deviceInfo.label] = l )
+          console.log( lights )
+          document.querySelector('#control').className = ''
+				} )
+			}
+
+			function handleSessionEnded() {	
+				session = null
+			}
+
+			function handleSessionStarted(xrSession){
+				session = xrSession
+				document.body.insertBefore(xrCanvas, document.body.firstChild)
+				document.onscroll = e => { 
+					e.preventDefault()
+					e.stopPropagation()
+					window.scrollTo( 0, 0 )
+					document.body.scrollTop = 0
+					return false
+				}
+
+				// Create the context where we will render our 3D scene
+				const canvas = document.createElement('canvas')
+				var glContext = canvas.getContext('webgl', {
+					compatibleXRDevice: device
+				})
+				if(!glContext) throw new Error('Could not create a webgl context')
+
+				// Set up the base layer
+				session.baseLayer = new XRWebGLLayer(session, glContext)
+
+				// Create a simple test scene and renderer
+				// The engine's scene is in the eye-level coordinate system 
+				window.engine = engine = new XREngine(canvas, glContext)
+
+				createRootNode().then(() => {
+					// Kick off rendering
+					session.requestAnimationFrame(handleAnimationFrame)
+				})
+
+				initializeScene()
+			}
+
+			async function createRootNode() {
+				let headFrameOfReference = await session.requestFrameOfReference('head-model')
+				eyeLevelFrameOfReference = await session.requestFrameOfReference('eye-level')
+
+				// get the location of the device, and use it to create an 
+				// anchor with the identity orientation
+				headFrameOfReference.getTransformTo(eyeLevelFrameOfReference, workingMatrix1)
+				mat4.getTranslation(workingVec3, workingMatrix1)
+				mat4.fromTranslation(workingMatrix1, workingVec3)
+
+				let anchor = await session.addAnchor(workingMatrix1, eyeLevelFrameOfReference)
+				engine.addAnchoredNode(anchor, engine.root)
+				
+				return true
+			}
+
+			////////////////
+			// render loop			
+			function handleAnimationFrame(t, frame){
+				if(!session || session.ended) return
+				updateScene()
+				session.requestAnimationFrame(handleAnimationFrame)
+
+				let pose = frame.getDevicePose(eyeLevelFrameOfReference)
+				if(!pose){
+					console.log('No pose')
+					return
+				}
+
+				engine.startFrame()
+				for (let view of frame.views) {
+					engine.preRender(
+						session.baseLayer.getViewport(view),
+						view.projectionMatrix,
+						pose.getViewMatrix(view)
+					)
+					engine.render()
+				}
+				engine.endFrame()
+				// updateSnap()
+
+				engine._camera.matrixWorldInverse.getInverse( engine._camera.matrixWorld );
+				cameraViewProjectionMatrix.multiplyMatrices( engine._camera.projectionMatrix, engine._camera.matrixWorldInverse );
+				frustum.setFromMatrix( cameraViewProjectionMatrix );
+
+        if ( !document.querySelector('.selected') ) return
+				engine._scene.children.forEach( (node, index) => {
+					if ( index > 1 && frustum.intersectsObject( node.children[0] ) && !liteList[node.name] ) {
+            var color = document.querySelector('.selected').id
+            console.log( node.name )
+            if ( color == "off" ) {
+              lights[node.name].turnOff( { duration:1000 } )
+            } else {
+              lights[node.name].turnOn( { color:{ css:color }, duration:1000 } )
+            }
+            liteList[node.name] = true
+            setTimeout( _ => delete liteList[node.name] , 1000 )
+					}
+				} )
+
+			}
+
+		</script>
+	</body>
+</html>
