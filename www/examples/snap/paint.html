@@ -1,6 +1,6 @@
 <html>
 	<head>
-		<title>Snapchat for Smart Spaces</title>
+		<title>Paint the Lights</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<script src="../libs/three/three.min.js"></script>
@@ -13,19 +13,19 @@
 			.focus     { background:#fff8; color:#000 }
 			.disabled  { opacity:.2 }
       .selected  { box-shadow:0 0 0 1.5vw #fff,0 0 2vw 1.5vw #000c !important }
-			#get, #set { display:none !important }
+      #get, #set { display:none !important }
+      #let       { border:0; height:0; opacity:0; padding:0; width:0 }
 			#message   { bottom:2.5vw; font-size:2.5vw; position:absolute; text-align:center; text-shadow:1px 1px 0 #000c; width:100vw }
-			#control   { bottom:10vw; left:0; padding:0; position:absolute; display:inline-flex; align-items:center; justify-content:center; width:100vw } 
+			#control   { bottom:0; left:0; padding:10vw 0; position:absolute; display:inline-flex; align-items:center; justify-content:center; width:100vw } 
 			#control * { -webkit-backdrop-filter:blur(3px); border:.5vw solid #0006; border-radius:100%; box-shadow:0 0 0 .75vw #fffc,0 0 1vw .75vw #000c; height:7vw; margin:0 2vw; padding:0; width:7vw }
 			#submit    { background:#09f; border-radius:100%; box-shadow:0 0 1.5vw #000c; display:none; align-items:center; justify-content:center; width:16vw; height:16vw; position:absolute; bottom:4vw; right:4vw }
 			#submit *  { border-top:4vw solid #0000; border-left:8vw solid #fff; border-bottom:4vw solid #0000; margin-left:2vw; width:0; height:0 }
-			#chat      { /*background:#0008;*/ border:none; border-radius:1vw; color:#fff; display:none; font-size:5vw; right:2.5vw; position:fixed; resize:none; overflow-x:hidden; top:0; width:83.5vw }
-			#x         { line-height:12.5vw; font-size:10vw; padding:0 2.5vw; position:fixed; top:0; left:0; text-shadow:1px 1px 0 #000c }
+			#x         { display:none; line-height:12.5vw; font-size:12.5vw; padding:0 2.5vw; position:fixed; top:0; right:0; text-shadow:1px 1px 0 #000c }
 		</style>
 	</head>
 	<body>
 		<button id="go">Go</button><br>
-    <div id="message"></div>
+    <div id="message" class="enabled"></div>
     <div id="control" class="disabled">
       <div id="white" style="background:white"></div>
       <div id="red" style="background:red"></div>
@@ -36,14 +36,11 @@
       <div id="purple" style="background:purple"></div>
       <div id="off"></div>
     </div>
-		<!-- <textarea id="chat" rows="1"></textarea> -->
-		<form id="chat">
-			<select id="chat1" ontouchstart="this.focus()"><option selected=true disabled>DEVICE</option></select><select id="chat2" ontouchstart="this.focus()"><option selected=true disabled>ACTION</option><option>Turn On</option><option>Turn Off</option></select>
-		</form>
-		<div id="submit" class="disabled"><div></div></div>
-		<!-- <div id="x">⟳</div> -->
+    <div id="submit" class="disabled"><div></div></div>
+		<div id="x">⟳</div>
 		<button id="get">Get Map</button><br>
-		<button id="set">Set Map</button><br>
+    <button id="set">Set Map</button><br>
+    <select id="let"><option>CANCEL</option></select>
 		<script>getter=setter=0</script>
 		<script type="module">
 			// some dependencies and utilities
@@ -59,12 +56,14 @@
 			let engine = null
 			var pause = null
 			var snap = null
-			let lights = null
 			let font = null
-      var names = [ `Thomas's light`, `Meghan's light`, `Matt's light`, `Jean-Luc's light` ]
+      var names = {}
+			var lights = {}
       var liteList = {}
 			var frustum = new THREE.Frustum();
-			var cameraViewProjectionMatrix = new THREE.Matrix4();
+      var cameraViewProjectionMatrix = new THREE.Matrix4();
+      var select = document.querySelector('#let')
+
 
 			// temporary working variables
 			const workingMatrix1 = mat4.create()
@@ -75,8 +74,9 @@
 
 			// get ready for the snap
 			const updateSnap = async() => snap = document.querySelector('div canvas').toDataURL()
-      // document.querySelector('#x').onclick = 
-      onbeforeunload = onunload = e => Lifx.destroy() && location.reload()
+      document.querySelector('#x').onclick = onbeforeunload = onunload = e => Lifx.destroy() && location.reload()
+      document.querySelector('#x').addEventListener('touchstart', eatButtonTouch, true)
+
 
 			// a saved map
 			var worldMap = null
@@ -92,29 +92,42 @@
 			}
 
 			function addAnchorInScreenCoordinates(normalizedX, normalizedY){
-				if(session === null){
-					console.log('No session for adding anchor')
-					return
-				}
-				// Convert the screen coordinates into head-model origin/direction for hit testing
-				const [origin, direction] = 
-					XRInputManager.convertScreenCoordinatesToRay(normalizedX, normalizedY, 
-																 engine.camera.projectionMatrix)
+				if( session === null || document.querySelector('#control.disabled') ) return
 
-				// set up the local transformation to be positioned relative to the camera along
-				// the ray, but also oriented along the ray direction
-				mat4.targetTo(workingMatrix1, origin, direction, upY)
-				mat4.fromTranslation(workingMatrix2, direction)
-				mat4.multiply(workingMatrix1, workingMatrix2, workingMatrix1)
+        // Convert the screen coordinates into head-model origin/direction for hit testing
+        const [origin, direction] = XRInputManager.convertScreenCoordinatesToRay(normalizedX, normalizedY, engine.camera.projectionMatrix)
+        // set up the local transformation to be positioned relative to the camera along
+        // the ray, but also oriented along the ray direction
+        mat4.targetTo(workingMatrix1, origin, direction, upY)
+        mat4.fromTranslation(workingMatrix2, direction)
+        mat4.multiply(workingMatrix1, workingMatrix2, workingMatrix1)
 
-				// create an anchor in front of the phone
-				session.requestFrameOfReference('head-model').then(headFrameOfReference => {
-						session.addAnchor(workingMatrix1, headFrameOfReference).then(anchor => {					
-							engine.addAnchoredNode(anchor, createSceneGraphNode())					
-						}).catch(err => {
-							console.error('Error adding anchor', err)
-						})
-				})
+        var group = new THREE.Group()
+
+        // create an anchor in front of the phone
+        session.requestFrameOfReference('head-model').then(headFrameOfReference => {
+          session.addAnchor(workingMatrix1, headFrameOfReference).then(anchor => {
+            engine.addAnchoredNode(anchor, group)			
+          }).catch(err => {
+            console.error('Error adding anchor', err)
+          })
+        })
+
+        select.selectedIndex = 0
+        select.focus()
+        select.onchange = event => {
+          if ( select.selectedIndex ) {
+            if ( names[ select.value ] ) {
+              engine.scene.remove( engine.scene.getObjectByName( select.value ) )
+            } else {
+              names[ select.value ] = true
+            }
+            createSceneGraphNode( group, select.value )
+          } else {
+            engine.scene.remove( group )
+          }
+        }
+
 			}
 			
 //			function handleHitResults(hits) {
@@ -133,11 +146,10 @@
 //			}
 
 			// Creates a box used to indicate the location of an anchor offset
-			function createSceneGraphNode(){
-				let group = new THREE.Group()
-				group.name = names.shift() || ""
+			function createSceneGraphNode( group, name ){
+				group.name = name
 
-				let geometry = new THREE.TextBufferGeometry( group.name.replace(' ','\n'), { font:font, size:.05, height:.05 } )
+				let geometry = new THREE.TextBufferGeometry( group.name.replace(' ','\n').toUpperCase(), { font:font, size:.05, height:.05 } )
 				var color = new THREE.Color( 0xffffff );
         		color.setHex( Math.random() * 0xffffff );
 				let material = new THREE.MeshPhongMaterial({ color: color })
@@ -159,7 +171,7 @@
 			function updateScene(frame){
 				let msg = session.nonStandard_getWorldMappingStatus()
 				if (msg) {
-					document.querySelector('#message').innerHTML = msg.replace(/_/g,' ').toUpperCase()
+					document.querySelector('#message.enabled').innerHTML = msg.replace(/_/g,' ').toUpperCase()
 				}
 			}
 
@@ -245,11 +257,14 @@
 			}).catch(err => {
 				console.error('Error', err)
 			})
-
+      
+      document.querySelector('#control'),addEventListener( 'touchstart', event => event.target == document.querySelector('#control') && event.stopPropagation(), true )
 			document.querySelectorAll('#control *').forEach( el => el.addEventListener('touchstart', control, {capture: true}) )
 			function control(event) { 
-        document.querySelectorAll('#control *').forEach( el => el.className = '' )
-        event.target.className = 'selected'
+        if ( !document.querySelector('#control.disabled') ) {
+          document.querySelectorAll('#control *').forEach( el => el.className = '' )
+          event.target.className = 'selected'
+        }
 				event.stopPropagation()
 			}
 
@@ -324,14 +339,32 @@
 
 				new THREE.FontLoader().load( '../libs/fonts/helvetiker_regular.typeface.json', f => font = f )
 
-				Lifx.discover().then( list => {
-					if ( !list || !list.length ) return
-					lights = {}
-          list.forEach( l => lights[l.deviceInfo.label] = l )
-          console.log( lights )
-          document.querySelector('#control').className = ''
-				} )
-			}
+				initLifx()
+      }
+      
+      var initLifx = _ => {
+        if ( !chrome ) {
+          setTimeout( initLifx, 100 )
+          return
+        }
+        Lifx.discover().then( list => {
+					if ( list && list.length ) {
+            list.sort( (a,b) => a.deviceInfo.label > b.deviceInfo.label )
+            list = list.filter( l => l.deviceInfo.label.includes('light') ).concat( list.filter( l => !l.deviceInfo.label.includes('light') ) )
+            list = list.filter( l => l.deviceInfo.label.startsWith('Meghan') ).concat( list.filter( l => !l.deviceInfo.label.startsWith('Meghan') ) )
+            list = list.filter( l => l.deviceInfo.label.startsWith('Thomas') ).concat( list.filter( l => !l.deviceInfo.label.startsWith('Thomas') ) )
+            list.forEach( l => lights[l.deviceInfo.label] || select.insertAdjacentHTML( `beforeend`, `<option>${l.deviceInfo.label}</option>` ) )
+            list.forEach( l => lights[l.deviceInfo.label] = l )
+            document.querySelector('#control').className = ''
+          } else {
+            document.querySelector('#message').innerHTML = 'NO LIGHTS DETECTED — CHECK WIFI'
+            document.querySelector('#message').style.color = 'red'
+            document.querySelector('#message').className = ''
+          }
+          document.querySelector('#x').style.display = 'initial'
+          setTimeout( initLifx, 1000 )
+        } )
+      }
 
 			function handleSessionEnded() {	
 				session = null
@@ -419,7 +452,6 @@
 				engine._scene.children.forEach( (node, index) => {
 					if ( index > 1 && frustum.intersectsObject( node.children[0] ) && !liteList[node.name] ) {
             var color = document.querySelector('.selected').id
-            console.log( node.name )
             if ( color == "off" ) {
               lights[node.name].turnOff( { duration:1000 } )
             } else {
