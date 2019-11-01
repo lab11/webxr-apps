@@ -1,21 +1,22 @@
-<img src="resources/ios/icon/icon-108@2x.png" height="108" align="left" hspace="6" />
+<img src="resources/ios/icon/icon-108@2x.png" alt="Lab11 XR" align="left" height="108" vspace="16" />
 
 # Lab11 XR
 
-An iOS environment to display and test new WebXR content<br/><br/>
+An iOS environment to display & test new [WebXR](https://www.w3.org/TR/webxr) content<br/><br/>
 
+</td></tr></table>
 
 ## WebXR Apps
 
-A number of example WebXR apps are included in `www/examples/` ([preview](https://lab11.github.io/webxr-apps/www)). 
+A number of example WebXR apps are included in [`www/examples/`](www/examples) ([preview](https://lab11.github.io/webxr-apps/www))
 
 #### Lab11 Apps:
 
-- `Paint the Lights` : Control LIFX bulbs by selecting a color and pointing camera at the lights.
-- `Snap and Command` : Take a picture of devices and select from device specific-actions to perform.
+- [`www/examples/paint`](www/examples/paint) : Control LIFX bulbs by selecting a color & pointing the camera at the lights
+- [`www/examples/snap`](www/examples/snap) : Snap a picture of devices & select from device-specific actions to perform
 
 
-## Build and Run
+## Build & Run
 
 Assuming [requirements](#requirements) are satisfied, prepare within the main directory:
 
@@ -25,7 +26,7 @@ To run on iOS device:
 
     cordova run --device --developmentTeam=<TEAM_ID>
 
-Alternatively, use `cordova build`, open `platforms/ios/Lab11 XR.xcodeproj`, and run from XCode. 
+Alternatively, use `cordova build`, open `platforms/ios/Lab11 XR.xcodeproj`, & run from XCode
 
 
 ## Requirements
@@ -39,6 +40,5 @@ Alternatively, use `cordova build`, open `platforms/ios/Lab11 XR.xcodeproj`, and
 
 ## Credits
 
-The iOS application uses [cordova-plugin-webxr](https://github.com/tzachari/cordova-plugin-webxr) to create the WebXR-compatible environment.
-
-The plugin and examples are based on work by [Mozilla's WebXR Viewer project](https://github.com/mozilla-mobile/webxr-ios).
+- [tzachari/cordova-plugin-webxr](https://github.com/tzachari/cordova-plugin-webxr) : The iOS app uses this plugin to create the WebXR-compatible environment
+- [mozilla-mobile/webxr-ios](https://github.com/mozilla-mobile/webxr-ios) : The plugin & examples are based on work from this WebXR project by Mozilla
