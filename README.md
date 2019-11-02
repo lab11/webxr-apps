@@ -1,19 +1,31 @@
-<img src="resources/ios/icon/icon-108@2x.png" alt="Lab11 XR" align="left" height="108" vspace="16" />
+<img src="resources/ios/icon/icon-108@2x.png" alt="Lab11 XR" align="left" height="120" />
 
 # Lab11 XR
 
-An iOS environment to display & test new [WebXR](https://www.w3.org/TR/webxr) content<br/><br/>
+An iOS environment to display & test new [WebXR](https://www.w3.org/TR/webxr) content<br/><br/><br/>
 
-</td></tr></table>
 
 ## WebXR Apps
 
 A number of example WebXR apps are included in [`www/examples/`](www/examples) ([preview](https://lab11.github.io/webxr-apps/www))
 
-#### Lab11 Apps:
+<table><tr><th>Lab11 Apps</th></tr><tr><td>
 
-- [`www/examples/paint`](www/examples/paint) : Control LIFX bulbs by selecting a color & pointing the camera at the lights
-- [`www/examples/snap`](www/examples/snap) : Snap a picture of devices & select from device-specific actions to perform
+<img src="www/examples/paint/screenshot.jpeg" alt="Paint" align="left" />
+
+#### [`www/examples/paint`](www/examples/paint)
+
+Control LIFX bulbs by selecting a color & pointing the camera at the lights
+
+</td></tr><tr><td>
+
+<img src="www/examples/snap/screenshot.jpeg" alt="Snap" align="left" />
+
+#### [`www/examples/snap`](www/examples/snap)
+
+Snap a picture of devices & select from device-specific actions to perform
+
+</td></tr></table>
 
 
 ## Build & Run
